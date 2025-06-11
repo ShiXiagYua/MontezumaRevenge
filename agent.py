@@ -35,7 +35,6 @@ class PPO:
         self.eps = eps  # PPO中截断范围的参数
         self.device = device
         self.entropy_coef=entropy_coef
-        self.hidden_state=None
     def reward_normalize(self,x):
         return x
         # return torch.sign(x)*torch.log(x.abs()+1)
@@ -47,7 +46,7 @@ class PPO:
     def take_action(self, state):
         #state: num_env dim
         state = self.tdv(state).unsqueeze(1)#num_env 1 dim
-        logits,self.hidden_state = self.actor(state)#num_env action_dim
+        logits = self.actor(state)#num_env action_dim
         action_dist = torch.distributions.Categorical(logits=logits.squeeze(1))
         action = action_dist.sample()#num_env
         return action.cpu().numpy() 
@@ -83,13 +82,13 @@ class PPO:
 
             #这里暂时没实现critic近端约束
             #就在这里有重复计算
-            old_values,_=self.critic(states)
-            old_next_values,_=self.critic(next_states)
+            old_values=self.critic(states)
+            old_next_values=self.critic(next_states)
             td_target = rewards + self.gamma * old_next_values * (1 -dones)#bs epi_len 1
             td_delta = td_target - old_values
             advantage = compute_advantage(self.gamma, self.lmbda,td_delta,dones)#bs epi_len 1
             # td_target=advantage+old_values
-            old_logits ,_= self.actor(states)
+            old_logits= self.actor(states)
             old_dist=torch.distributions.Categorical(logits=old_logits)
             old_log_probs = old_dist.log_prob(actions.squeeze(-1)).unsqueeze(-1)  # bs epi_len 1
             old_log_probs=old_log_probs.detach()
@@ -99,7 +98,7 @@ class PPO:
             advantage=advantage.detach()
         total_actor_loss,total_critic_loss,total_entropy,total_ratio=0.0,0.0,0.0,0.0
         for _ in range(self.epochs):
-            logits,_=self.actor(states)
+            logits=self.actor(states)
             dist = torch.distributions.Categorical(logits=logits)
             entropy = dist.entropy().mean()
             log_probs = dist.log_prob(actions.squeeze(-1)).unsqueeze(-1) 
@@ -109,7 +108,7 @@ class PPO:
                                 1 + self.eps) * advantage  # 截断
             actor_loss = torch.mean(-torch.min(surr1, surr2))  # PPO损失函数
             # critic_loss = self.cal_value_loss(old_values,self.critic(states),td_target)
-            critic_loss=F.mse_loss(self.critic(states)[0],td_target)
+            critic_loss=F.mse_loss(self.critic(states),td_target)
             self.actor_optimizer.zero_grad()
             self.critic_optimizer.zero_grad()
             (actor_loss-self.entropy_coef*entropy).backward()
